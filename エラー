@@ -1,0 +1,52 @@
+エラーが出ていますね！修正方法を説明します。
+
+## 🔧 問題の原因と解決方法
+
+### 問題1: ファイル名が `@log_errors.py` になっている
+Pythonのファイル名に `@` は使えません！
+
+### 問題2: デコレーターをインポートしていない
+`log_call` を使う前にインポートが必要です。
+
+---
+
+## ✅ 正しい使い方（3ステップ）次に、実際に動くサンプルファイルを作成します：最後に、わかりやすいセットアップガイドを作成します：完璧です！エラーの原因と解決方法を詳しく説明しました。
+
+## 📋 あなたのエラーの原因まとめ
+
+1. **ファイル名の問題**: `@log_errors.py` → `@` は使えません
+2. **インポート忘れ**: `from logging_decorators import log_call` が必要
+
+## ✅ 解決方法（3ステップ）
+
+### ステップ1: `logging_decorators.py` を作成
+- デコレーターの定義ファイル
+- `C:\Users\yukik\Desktop\excel\logging_decorators.py` として保存
+
+### ステップ2: `main.py` を作成
+- デコレーターを使う側のファイル
+- **必ず先頭でインポート**: `from logging_decorators import log_call`
+
+### ステップ3: 実行
+```powershell
+cd C:\Users\yukik\Desktop\excel
+py main.py
+```
+
+## 🎯 重要なポイント
+
+```python
+# ❌ 間違い（インポートなし）
+@log_call
+def my_function():
+    pass
+
+# ✅ 正解（インポートあり）
+from logging_decorators import log_call
+
+@log_call
+def my_function():
+    pass
+```
+
+アーティファクトに完全なコードを用意したので、コピペして試してみてください！🚀✨
