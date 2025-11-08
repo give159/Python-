@@ -1,0 +1,2628 @@
+"""
+実務で使えるロギングデコレーター集 - 超丁寧解説版
+
+このファイルでは、10個のロギングデコレーターを
+一行ずつコメント付きで解説します。
+
+新人エンジニアが完全に理解できるように、
+各行の意味と動作を詳しく説明しています。
+
+作成者: 2025
+対象: Python初心者〜中級者
+"""
+
+# ===================================================================
+# 必要なモジュールのインポート
+# ===================================================================
+
+import logging
+# loggingモジュール: ログを出力するための標準ライブラリ
+# print()の代わりに使うと、ログレベル（DEBUG, INFO, ERROR等）を設定できる
+
+import time
+# timeモジュール: 時間関連の処理（待機、時間計測）
+
+import functools
+# functoolsモジュール: 関数型プログラミングのツール
+# @functools.wrapsがデコレーターで重要
+
+from datetime import datetime
+# datetimeモジュール: 日付と時刻を扱う
+# 今回は使用していないが、タイムスタンプ用に用意
+
+from typing import Any, Callable
+# typingモジュール: 型ヒント用
+# Callable: 関数の型を表す
+# Any: 任意の型を表す
+
+import traceback
+# tracebackモジュール: 例外のスタックトレースを取得
+# エラーが発生した場所を詳細に表示できる
+
+import json
+# jsonモジュール: JSON形式のデータを扱う
+# 今回は使用していないが、ログ出力用に用意
+
+
+# ===================================================================
+# ロガーの基本設定（モジュールレベル）
+# ===================================================================
+
+# モジュールレベルのロガーを作成
+logger = logging.getLogger(__name__)
+# logging.getLogger(__name__): このモジュール専用のロガーを作成
+# __name__: モジュール名（例: "logging_decorators"）
+# ロガーは階層構造を持ち、__name__を使うことで管理しやすくなる
+
+logger.setLevel(logging.DEBUG)
+# setLevel(logging.DEBUG): ログの最低レベルをDEBUGに設定
+# DEBUG以上（DEBUG, INFO, WARNING, ERROR, CRITICAL）が出力される
+# DEBUGは最も詳細なレベル（開発時に便利）
+
+# コンソールハンドラーの設定
+console_handler = logging.StreamHandler()
+# StreamHandler(): 標準出力（コンソール）にログを出力するハンドラー
+# ハンドラー: ログをどこに出力するかを決める（ファイル、コンソール等）
+
+console_handler.setLevel(logging.DEBUG)
+# ハンドラーのレベルもDEBUGに設定
+# ロガーとハンドラーの両方が許可した場合のみログが出力される
+
+# フォーマッターの設定
+formatter = logging.Formatter(
+    '[%(asctime)s] %(levelname)-8s [%(name)s:%(funcName)s:%(lineno)d] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+# Formatter: ログの表示形式を設定
+# %(asctime)s: タイムスタンプ（例: 2025-01-15 10:30:45）
+# %(levelname)-8s: ログレベル（左寄せ8文字、例: "INFO    "）
+# %(name)s: ロガーの名前（モジュール名）
+# %(funcName)s: 関数名
+# %(lineno)d: 行番号
+# %(message)s: ログメッセージ本文
+# datefmt: タイムスタンプの形式を指定
+
+console_handler.setFormatter(formatter)
+# ハンドラーにフォーマッターを設定
+# これでログが見やすく整形される
+
+# ハンドラーをロガーに追加（重複防止）
+if not logger.handlers:
+    # logger.handlers: ロガーに登録済みのハンドラーのリスト
+    # 空の場合のみ追加（重複登録を防ぐ）
+    logger.addHandler(console_handler)
+    # addHandler(): ハンドラーをロガーに登録
+
+
+# ===================================================================
+# デコレーター1: 関数呼び出しをログ出力
+# ===================================================================
+
+def log_call(func: Callable) -> Callable:
+    """
+    関数の呼び出しをログに記録するデコレーター
+    
+    このデコレーターを関数に付けると：
+    1. 関数が呼ばれたときに「呼び出し」ログを出力
+    2. 引数の値をログに記録
+    3. 関数の実行結果（戻り値）をログに記録
+    
+    使用例:
+        @log_call
+        def add(a, b):
+            return a + b
+        
+        result = add(3, 5)
+        # ログ出力:
+        # → 呼び出し: add(3, 5)
+        # ← 完了: add() → 8
+    
+    Args:
+        func: デコレートする関数（Callable型 = 呼び出し可能なオブジェクト）
+    
+    Returns:
+        Callable: ラップされた関数（元の関数に機能を追加したもの）
+    """
+    
+    @functools.wraps(func)
+    # @functools.wraps(func): 重要！
+    # 元の関数の情報（名前、docstring等）をwrapperに引き継ぐ
+    # これがないと、wrapper.__name__ が "wrapper" になってしまう
+    # wrapsを使うと、wrapper.__name__ が元の関数名になる
+    
+    def wrapper(*args, **kwargs):
+        # wrapper: 実際に実行される関数（元の関数をラップする）
+        # *args: 位置引数をタプルで受け取る（例: (3, 5)）
+        # **kwargs: キーワード引数を辞書で受け取る（例: {'x': 3, 'y': 5}）
+        
+        # ===== ステップ1: 関数名を取得 =====
+        func_name = func.__name__
+        # func.__name__: 関数の名前を取得（例: "add"）
+        # __name__は関数オブジェクトの属性
+        
+        # ===== ステップ2: 引数をフォーマット =====
+        args_repr = [repr(a) for a in args]
+        # リスト内包表記: argsの各要素をrepr()で文字列化
+        # repr(): オブジェクトの「公式な」文字列表現を返す
+        # 例: args=(3, 5) → args_repr=['3', '5']
+        
+        kwargs_repr = [f"{k}={v!r}" for k, v in kwargs.items()]
+        # キーワード引数を "キー=値" の形式にフォーマット
+        # f"{k}={v!r}": f-string（フォーマット文字列）
+        # {v!r}: v に対して repr() を適用（!r は repr() の略記法）
+        # 例: kwargs={'x': 3} → kwargs_repr=['x=3']
+        
+        signature = ", ".join(args_repr + kwargs_repr)
+        # args_repr + kwargs_repr: 2つのリストを結合
+        # ", ".join(...): リストの要素をカンマで連結
+        # 例: ['3', '5', 'x=3'] → "3, 5, x=3"
+        
+        # ===== ステップ3: 関数開始のログ出力 =====
+        logger.info(f"→ 呼び出し: {func_name}({signature})")
+        # logger.info(): INFOレベルでログ出力
+        # f"..." : f-string（変数を{}内に埋め込める）
+        # 出力例: "→ 呼び出し: add(3, 5)"
+        
+        # ===== ステップ4: 実際の関数を実行 =====
+        result = func(*args, **kwargs)
+        # func(*args, **kwargs): 元の関数を引数付きで実行
+        # *args: タプルを展開して位置引数として渡す
+        # **kwargs: 辞書を展開してキーワード引数として渡す
+        # 例: func(*(3, 5), **{}) → func(3, 5)
+        
+        # ===== ステップ5: 関数終了のログ出力 =====
+        logger.info(f"← 完了: {func_name}() → {result!r}")
+        # {result!r}: 戻り値を repr() で文字列化
+        # 出力例: "← 完了: add() → 8"
+        
+        # ===== ステップ6: 戻り値を返す =====
+        return result
+        # 元の関数の戻り値をそのまま返す
+        # これを忘れると、関数が None を返してしまう
+    
+    return wrapper
+    # デコレーターはwrapper関数を返す
+    # @log_call を付けると、元の関数がwrapperに置き換わる
+
+
+# ===================================================================
+# デコレーター2: 実行時間を計測
+# ===================================================================
+
+def log_time(func: Callable) -> Callable:
+    """
+    関数の実行時間を計測してログに記録するデコレーター
+    
+    動作:
+    1. 関数の実行開始時刻を記録
+    2. 関数を実行
+    3. 実行終了時刻を記録
+    4. 実行時間（終了時刻 - 開始時刻）を計算
+    5. ログに出力（ミリ秒単位）
+    
+    使用例:
+        @log_time
+        def slow_function():
+            time.sleep(1)
+        
+        slow_function()
+        # ログ出力: "⏱ slow_function() の実行時間: 1000.5ms"
+    
+    Args:
+        func: デコレートする関数
+    
+    Returns:
+        ラップされた関数
+    """
+    
+    @functools.wraps(func)
+    # 元の関数の情報を保持
+    
+    def wrapper(*args, **kwargs):
+        # ラッパー関数の定義
+        
+        func_name = func.__name__
+        # 関数名を取得（ログ出力用）
+        
+        # ===== ステップ1: 開始時刻を記録 =====
+        start_time = time.time()
+        # time.time(): 現在時刻を秒単位で取得（UNIX時間）
+        # 例: 1705392000.123456（小数点以下はマイクロ秒）
+        
+        # ===== ステップ2: 実際の関数を実行 =====
+        result = func(*args, **kwargs)
+        # 元の関数を実行して結果を取得
+        
+        # ===== ステップ3: 終了時刻を記録 =====
+        end_time = time.time()
+        # 関数実行後の現在時刻を取得
+        
+        # ===== ステップ4: 実行時間を計算 =====
+        elapsed_time = (end_time - start_time) * 1000
+        # (end_time - start_time): 経過時間を秒単位で計算
+        # * 1000: 秒をミリ秒に変換（1秒 = 1000ミリ秒）
+        # 例: 0.123秒 → 123ミリ秒
+        
+        # ===== ステップ5: ログ出力 =====
+        logger.info(f"⏱ {func_name}() の実行時間: {elapsed_time:.2f}ms")
+        # {elapsed_time:.2f}: 小数点以下2桁で表示
+        # .2f は「float型を小数点以下2桁で表示」の意味
+        # 例: 123.456 → "123.46ms"
+        
+        return result
+        # 元の関数の戻り値を返す
+    
+    return wrapper
+    # ラッパー関数を返す
+
+
+# ===================================================================
+# デコレーター3: エラーをキャッチしてログ出力
+# ===================================================================
+
+def log_errors(func: Callable) -> Callable:
+    """
+    関数内のエラーをキャッチしてログに記録するデコレーター
+    
+    動作:
+    1. try-exceptで関数を実行
+    2. 例外が発生したらログに記録
+    3. スタックトレース（エラーの詳細情報）も出力
+    4. 例外を再度投げる（上位で処理できるように）
+    
+    使用例:
+        @log_errors
+        def risky_function():
+            return 10 / 0  # ZeroDivisionError
+        
+        try:
+            risky_function()
+        except ZeroDivisionError:
+            print("エラーをキャッチしました")
+        
+        # ログ出力:
+        # ❌ risky_function() でエラー発生: ZeroDivisionError: ...
+        # スタックトレース: ...
+    
+    Args:
+        func: デコレートする関数
+    
+    Returns:
+        ラップされた関数
+    """
+    
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        func_name = func.__name__
+        # 関数名を取得
+        
+        try:
+            # ===== ステップ1: 関数を実行（try ブロック） =====
+            return func(*args, **kwargs)
+            # 正常に実行できたら、そのまま戻り値を返す
+            # ここでreturnするので、exceptブロックは実行されない
+        
+        except Exception as e:
+            # ===== ステップ2: 例外をキャッチ =====
+            # Exception: すべての例外の基底クラス
+            # as e: 例外オブジェクトを変数eに格納
+            
+            # エラー情報をログ出力
+            logger.error(f"❌ {func_name}() でエラー発生: {type(e).__name__}: {e}")
+            # logger.error(): ERRORレベルでログ出力（重大なエラー）
+            # type(e).__name__: 例外の型名を取得（例: "ZeroDivisionError"）
+            # {e}: 例外メッセージ（例: "division by zero"）
+            
+            # ===== ステップ3: スタックトレースをログ出力 =====
+            logger.error(f"スタックトレース:\n{traceback.format_exc()}")
+            # traceback.format_exc(): スタックトレースを文字列で取得
+            # スタックトレース: エラーが発生した経路を詳細に表示
+            # \n: 改行文字（見やすくするため）
+            
+            # ===== ステップ4: 例外を再送出 =====
+            raise
+            # raise: 例外をそのまま投げ直す
+            # 上位の呼び出し元で処理できるようにするため
+            # raiseを書かないと、例外が握りつぶされてしまう
+    
+    return wrapper
+
+
+# ===================================================================
+# デコレーター4: 実行回数をカウント
+# ===================================================================
+
+def count_calls(func: Callable) -> Callable:
+    """
+    関数の呼び出し回数をカウントするデコレーター
+    
+    動作:
+    1. wrapper関数に call_count 属性を追加
+    2. 関数が呼ばれるたびに call_count を +1
+    3. ログに現在のカウントを出力
+    
+    使用例:
+        @count_calls
+        def my_function():
+            pass
+        
+        my_function()
+        my_function()
+        print(my_function.call_count)  # 2
+        
+        # ログ出力:
+        # 📊 my_function() 呼び出し回数: 1回
+        # 📊 my_function() 呼び出し回数: 2回
+    
+    Args:
+        func: デコレートする関数
+    
+    Returns:
+        ラップされた関数（call_count属性付き）
+    """
+    
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        # ===== ステップ1: 呼び出し回数をカウント =====
+        wrapper.call_count += 1
+        # wrapper.call_count: wrapper関数の属性（後で初期化）
+        # += 1: 1ずつ増やす（インクリメント）
+        # Pythonでは関数もオブジェクトなので、属性を持てる
+        
+        func_name = func.__name__
+        # 関数名を取得
+        
+        # ===== ステップ2: カウントをログ出力 =====
+        logger.debug(f"📊 {func_name}() 呼び出し回数: {wrapper.call_count}回")
+        # logger.debug(): DEBUGレベルでログ出力
+        # DEBUGは詳細情報用（本番環境では通常オフにする）
+        
+        # ===== ステップ3: 実際の関数を実行 =====
+        return func(*args, **kwargs)
+        # 元の関数を実行して結果を返す
+    
+    # ===== call_count 属性を初期化 =====
+    wrapper.call_count = 0
+    # wrapper関数に call_count という属性を追加
+    # 初期値は 0
+    # この行がないと、wrapper.call_count += 1 でエラーになる
+    
+    return wrapper
+    # call_count属性を持つwrapper関数を返す
+
+
+# ===================================================================
+# デコレーター5: 引数と戻り値を詳細にログ出力
+# ===================================================================
+
+def log_detailed(func: Callable) -> Callable:
+    """
+    引数と戻り値を詳細にログ出力するデコレーター
+    
+    動作:
+    1. 関数名を表示
+    2. 位置引数を1つずつ型と値を表示
+    3. キーワード引数を1つずつ型と値を表示
+    4. 関数を実行
+    5. 戻り値の型と値を表示
+    
+    使用例:
+        @log_detailed
+        def calculate(x, y):
+            return x + y
+        
+        calculate(3, 5)
+        
+        # ログ出力:
+        # ============================================================
+        # 関数: calculate()
+        # ============================================================
+        # 位置引数:
+        #   [0] int: 3
+        #   [1] int: 5
+        # 戻り値: int = 8
+        # ============================================================
+    
+    Args:
+        func: デコレートする関数
+    
+    Returns:
+        ラップされた関数
+    """
+    
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        func_name = func.__name__
+        # 関数名を取得
+        
+        # ===== ステップ1: ヘッダーを出力 =====
+        logger.debug(f"{'='*60}")
+        # {'='*60}: '='を60個繋げた文字列を作成
+        # 見やすくするための区切り線
+        
+        logger.debug(f"関数: {func_name}()")
+        # 関数名を表示
+        
+        logger.debug(f"{'='*60}")
+        # 区切り線
+        
+        # ===== ステップ2: 位置引数の詳細を出力 =====
+        if args:
+            # if args: argsが空でない場合（位置引数がある場合）
+            # 空のタプル()はFalsyな値（Falseと同じ扱い）
+            
+            logger.debug("位置引数:")
+            # ラベルを出力
+            
+            for i, arg in enumerate(args):
+                # enumerate(args): インデックスと値のペアを取得
+                # 例: args=(3, 5) → (0, 3), (1, 5) を順に取得
+                
+                logger.debug(f"  [{i}] {type(arg).__name__}: {arg!r}")
+                # "  ": インデント（2スペース）見やすくする
+                # [{i}]: インデックスを[]で囲む（例: [0]）
+                # type(arg).__name__: 引数の型名（例: "int"）
+                # {arg!r}: repr()で文字列化
+        
+        # ===== ステップ3: キーワード引数の詳細を出力 =====
+        if kwargs:
+            # kwargsが空でない場合
+            
+            logger.debug("キーワード引数:")
+            # ラベルを出力
+            
+            for key, value in kwargs.items():
+                # kwargs.items(): キーと値のペアを取得
+                # 例: kwargs={'x': 3} → ('x', 3) を取得
+                
+                logger.debug(f"  {key}: {type(value).__name__} = {value!r}")
+                # {key}: キー名（例: "x"）
+                # type(value).__name__: 値の型名
+                # {value!r}: 値を repr() で文字列化
+        
+        # ===== ステップ4: 実際の関数を実行 =====
+        result = func(*args, **kwargs)
+        # 元の関数を実行
+        
+        # ===== ステップ5: 戻り値の詳細を出力 =====
+        logger.debug(f"戻り値: {type(result).__name__} = {result!r}")
+        # 戻り値の型と値を表示
+        
+        logger.debug(f"{'='*60}")
+        # 区切り線（終了）
+        
+        return result
+        # 戻り値を返す
+    
+    return wrapper
+
+
+# ===================================================================
+# デコレーター6: リトライ機能（失敗時に再実行）
+# ===================================================================
+
+def retry(max_attempts: int = 3, delay: float = 1.0):
+    """
+    失敗時に自動でリトライするデコレーター（パラメータ付き）
+    
+    これは「デコレーターを返すデコレーター」（デコレーターファクトリー）
+    
+    動作:
+    1. 関数を実行
+    2. 例外が発生したら、指定秒数待機
+    3. 再度実行（最大試行回数まで）
+    4. すべて失敗したら例外を投げる
+    
+    使用例:
+        @retry(max_attempts=3, delay=1.0)
+        def unstable_api_call():
+            # 不安定なAPI呼び出し
+            pass
+        
+        # 1回目: 失敗 → 1秒待機
+        # 2回目: 失敗 → 1秒待機
+        # 3回目: 成功 → 完了
+    
+    Args:
+        max_attempts: 最大試行回数（デフォルト: 3回）
+        delay: 試行間の待機時間（秒、デフォルト: 1.0秒）
+    
+    Returns:
+        デコレーター関数
+    """
+    
+    def decorator(func: Callable) -> Callable:
+        # decorator: 実際のデコレーター
+        # retry()が呼ばれると、この decorator が返される
+        # @retry(max_attempts=3) → decorator関数が返される
+        
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            # wrapper: 実際に実行される関数
+            
+            func_name = func.__name__
+            # 関数名を取得
+            
+            # ===== 指定回数まで試行 =====
+            for attempt in range(1, max_attempts + 1):
+                # range(1, max_attempts + 1): 1からmax_attemptsまでの数列
+                # 例: max_attempts=3 → range(1, 4) → 1, 2, 3
+                # attemptは試行回数（1回目、2回目、3回目）
+                
+                try:
+                    # ===== ステップ1: 試行開始のログ =====
+                    logger.info(f"🔄 {func_name}() 試行 {attempt}/{max_attempts}")
+                    # 例: "🔄 api_call() 試行 1/3"
+                    
+                    # ===== ステップ2: 実際の関数を実行 =====
+                    result = func(*args, **kwargs)
+                    # 成功したらこの行が実行される
+                    
+                    # ===== ステップ3: 成功時のログ =====
+                    if attempt > 1:
+                        # 2回目以降の試行で成功した場合
+                        logger.info(f"✅ {func_name}() 成功（{attempt}回目で成功）")
+                        # 例: "✅ api_call() 成功（2回目で成功）"
+                    
+                    return result
+                    # 成功したら、結果を返してループを抜ける
+                
+                except Exception as e:
+                    # ===== ステップ4: 例外をキャッチ =====
+                    
+                    if attempt < max_attempts:
+                        # まだ試行回数が残っている場合
+                        
+                        logger.warning(
+                            f"⚠️ {func_name}() 失敗（{attempt}/{max_attempts}）: "
+                            f"{type(e).__name__}: {e}"
+                        )
+                        # logger.warning(): WARNINGレベルでログ出力
+                        # 警告レベル（エラーほど重大ではない）
+                        
+                        logger.info(f"⏳ {delay}秒待機後に再試行...")
+                        # 待機することを通知
+                        
+                        time.sleep(delay)
+                        # time.sleep(delay): 指定秒数だけ待機
+                        # 例: delay=1.0 → 1秒間停止
+                        # サーバーに負荷をかけないための待機
+                    
+                    else:
+                        # 最後の試行も失敗した場合
+                        
+                        logger.error(
+                            f"❌ {func_name}() 全ての試行が失敗しました "
+                            f"（{max_attempts}回試行）"
+                        )
+                        # 全て失敗したことをログ出力
+                        
+                        raise
+                        # 例外を再送出
+                        # 上位で処理できるようにする
+        
+        return wrapper
+        # wrapper関数を返す
+    
+    return decorator
+    # decorator関数を返す
+    # これにより @retry(max_attempts=3) が使える
+
+
+# ===================================================================
+# デコレーター7: 実行結果をキャッシュ（メモ化）
+# ===================================================================
+
+def cache_result(func: Callable) -> Callable:
+    """
+    関数の実行結果をキャッシュするデコレーター
+    
+    動作:
+    1. 引数をキーとして辞書にキャッシュを保存
+    2. 同じ引数で呼ばれたら、キャッシュから取得（関数を実行しない）
+    3. キャッシュヒット率をログに記録
+    
+    使用例:
+        @cache_result
+        def expensive_calculation(n):
+            time.sleep(1)  # 重い処理
+            return n * n
+        
+        expensive_calculation(5)  # 1秒かかる（初回）
+        expensive_calculation(5)  # 即座に返る（キャッシュ）
+    
+    注意:
+    - 引数がハッシュ可能（辞書のキーにできる）である必要がある
+    - 副作用のある関数には使用不可（結果が毎回変わる関数）
+    
+    Args:
+        func: デコレートする関数
+    
+    Returns:
+        ラップされた関数（clear_cache メソッド付き）
+    """
+    
+    # ===== キャッシュ用の変数を定義 =====
+    cache = {}
+    # cache: キャッシュを保存する辞書
+    # キー: 引数のタプル
+    # 値: 実行結果
+    
+    cache_hits = 0
+    # cache_hits: キャッシュヒットの回数（見つかった回数）
+
+"""
+実務で使えるロギングデコレーター集 - 超丁寧解説版
+
+このファイルでは、10個のロギングデコレーターを
+一行ずつコメント付きで解説します。
+
+新人エンジニアが完全に理解できるように、
+各行の意味と動作を詳しく説明しています。
+
+作成者: 2025
+対象: Python初心者〜中級者
+"""
+
+# ===================================================================
+# 必要なモジュールのインポート
+# ===================================================================
+
+import logging
+# loggingモジュール: ログを出力するための標準ライブラリ
+# print()の代わりに使うと、ログレベル（DEBUG, INFO, ERROR等）を設定できる
+
+import time
+# timeモジュール: 時間関連の処理（待機、時間計測）
+
+import functools
+# functoolsモジュール: 関数型プログラミングのツール
+# @functools.wrapsがデコレーターで重要
+
+from datetime import datetime
+# datetimeモジュール: 日付と時刻を扱う
+# 今回は使用していないが、タイムスタンプ用に用意
+
+from typing import Any, Callable
+# typingモジュール: 型ヒント用
+# Callable: 関数の型を表す
+# Any: 任意の型を表す
+
+import traceback
+# tracebackモジュール: 例外のスタックトレースを取得
+# エラーが発生した場所を詳細に表示できる
+
+import json
+# jsonモジュール: JSON形式のデータを扱う
+# 今回は使用していないが、ログ出力用に用意
+
+
+# ===================================================================
+# ロガーの基本設定（モジュールレベル）
+# ===================================================================
+
+# モジュールレベルのロガーを作成
+logger = logging.getLogger(__name__)
+# logging.getLogger(__name__): このモジュール専用のロガーを作成
+# __name__: モジュール名（例: "logging_decorators"）
+# ロガーは階層構造を持ち、__name__を使うことで管理しやすくなる
+
+logger.setLevel(logging.DEBUG)
+# setLevel(logging.DEBUG): ログの最低レベルをDEBUGに設定
+# DEBUG以上（DEBUG, INFO, WARNING, ERROR, CRITICAL）が出力される
+# DEBUGは最も詳細なレベル（開発時に便利）
+
+# コンソールハンドラーの設定
+console_handler = logging.StreamHandler()
+# StreamHandler(): 標準出力（コンソール）にログを出力するハンドラー
+# ハンドラー: ログをどこに出力するかを決める（ファイル、コンソール等）
+
+console_handler.setLevel(logging.DEBUG)
+# ハンドラーのレベルもDEBUGに設定
+# ロガーとハンドラーの両方が許可した場合のみログが出力される
+
+# フォーマッターの設定
+formatter = logging.Formatter(
+    '[%(asctime)s] %(levelname)-8s [%(name)s:%(funcName)s:%(lineno)d] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+# Formatter: ログの表示形式を設定
+# %(asctime)s: タイムスタンプ（例: 2025-01-15 10:30:45）
+# %(levelname)-8s: ログレベル（左寄せ8文字、例: "INFO    "）
+# %(name)s: ロガーの名前（モジュール名）
+# %(funcName)s: 関数名
+# %(lineno)d: 行番号
+# %(message)s: ログメッセージ本文
+# datefmt: タイムスタンプの形式を指定
+
+console_handler.setFormatter(formatter)
+# ハンドラーにフォーマッターを設定
+# これでログが見やすく整形される
+
+# ハンドラーをロガーに追加（重複防止）
+if not logger.handlers:
+    # logger.handlers: ロガーに登録済みのハンドラーのリスト
+    # 空の場合のみ追加（重複登録を防ぐ）
+    logger.addHandler(console_handler)
+    # addHandler(): ハンドラーをロガーに登録
+
+
+# ===================================================================
+# デコレーター1: 関数呼び出しをログ出力
+# ===================================================================
+
+def log_call(func: Callable) -> Callable:
+    """
+    関数の呼び出しをログに記録するデコレーター
+    
+    このデコレーターを関数に付けると：
+    1. 関数が呼ばれたときに「呼び出し」ログを出力
+    2. 引数の値をログに記録
+    3. 関数の実行結果（戻り値）をログに記録
+    
+    使用例:
+        @log_call
+        def add(a, b):
+            return a + b
+        
+        result = add(3, 5)
+        # ログ出力:
+        # → 呼び出し: add(3, 5)
+        # ← 完了: add() → 8
+    
+    Args:
+        func: デコレートする関数（Callable型 = 呼び出し可能なオブジェクト）
+    
+    Returns:
+        Callable: ラップされた関数（元の関数に機能を追加したもの）
+    """
+    
+    @functools.wraps(func)
+    # @functools.wraps(func): 重要！
+    # 元の関数の情報（名前、docstring等）をwrapperに引き継ぐ
+    # これがないと、wrapper.__name__ が "wrapper" になってしまう
+    # wrapsを使うと、wrapper.__name__ が元の関数名になる
+    
+    def wrapper(*args, **kwargs):
+        # wrapper: 実際に実行される関数（元の関数をラップする）
+        # *args: 位置引数をタプルで受け取る（例: (3, 5)）
+        # **kwargs: キーワード引数を辞書で受け取る（例: {'x': 3, 'y': 5}）
+        
+        # ===== ステップ1: 関数名を取得 =====
+        func_name = func.__name__
+        # func.__name__: 関数の名前を取得（例: "add"）
+        # __name__は関数オブジェクトの属性
+        
+        # ===== ステップ2: 引数をフォーマット =====
+        args_repr = [repr(a) for a in args]
+        # リスト内包表記: argsの各要素をrepr()で文字列化
+        # repr(): オブジェクトの「公式な」文字列表現を返す
+        # 例: args=(3, 5) → args_repr=['3', '5']
+        
+        kwargs_repr = [f"{k}={v!r}" for k, v in kwargs.items()]
+        # キーワード引数を "キー=値" の形式にフォーマット
+        # f"{k}={v!r}": f-string（フォーマット文字列）
+        # {v!r}: v に対して repr() を適用（!r は repr() の略記法）
+        # 例: kwargs={'x': 3} → kwargs_repr=['x=3']
+        
+        signature = ", ".join(args_repr + kwargs_repr)
+        # args_repr + kwargs_repr: 2つのリストを結合
+        # ", ".join(...): リストの要素をカンマで連結
+        # 例: ['3', '5', 'x=3'] → "3, 5, x=3"
+        
+        # ===== ステップ3: 関数開始のログ出力 =====
+        logger.info(f"→ 呼び出し: {func_name}({signature})")
+        # logger.info(): INFOレベルでログ出力
+        # f"..." : f-string（変数を{}内に埋め込める）
+        # 出力例: "→ 呼び出し: add(3, 5)"
+        
+        # ===== ステップ4: 実際の関数を実行 =====
+        result = func(*args, **kwargs)
+        # func(*args, **kwargs): 元の関数を引数付きで実行
+        # *args: タプルを展開して位置引数として渡す
+        # **kwargs: 辞書を展開してキーワード引数として渡す
+        # 例: func(*(3, 5), **{}) → func(3, 5)
+        
+        # ===== ステップ5: 関数終了のログ出力 =====
+        logger.info(f"← 完了: {func_name}() → {result!r}")
+        # {result!r}: 戻り値を repr() で文字列化
+        # 出力例: "← 完了: add() → 8"
+        
+        # ===== ステップ6: 戻り値を返す =====
+        return result
+        # 元の関数の戻り値をそのまま返す
+        # これを忘れると、関数が None を返してしまう
+    
+    return wrapper
+    # デコレーターはwrapper関数を返す
+    # @log_call を付けると、元の関数がwrapperに置き換わる
+
+
+# ===================================================================
+# デコレーター2: 実行時間を計測
+# ===================================================================
+
+def log_time(func: Callable) -> Callable:
+    """
+    関数の実行時間を計測してログに記録するデコレーター
+    
+    動作:
+    1. 関数の実行開始時刻を記録
+    2. 関数を実行
+    3. 実行終了時刻を記録
+    4. 実行時間（終了時刻 - 開始時刻）を計算
+    5. ログに出力（ミリ秒単位）
+    
+    使用例:
+        @log_time
+        def slow_function():
+            time.sleep(1)
+        
+        slow_function()
+        # ログ出力: "⏱ slow_function() の実行時間: 1000.5ms"
+    
+    Args:
+        func: デコレートする関数
+    
+    Returns:
+        ラップされた関数
+    """
+    
+    @functools.wraps(func)
+    # 元の関数の情報を保持
+    
+    def wrapper(*args, **kwargs):
+        # ラッパー関数の定義
+        
+        func_name = func.__name__
+        # 関数名を取得（ログ出力用）
+        
+        # ===== ステップ1: 開始時刻を記録 =====
+        start_time = time.time()
+        # time.time(): 現在時刻を秒単位で取得（UNIX時間）
+        # 例: 1705392000.123456（小数点以下はマイクロ秒）
+        
+        # ===== ステップ2: 実際の関数を実行 =====
+        result = func(*args, **kwargs)
+        # 元の関数を実行して結果を取得
+        
+        # ===== ステップ3: 終了時刻を記録 =====
+        end_time = time.time()
+        # 関数実行後の現在時刻を取得
+        
+        # ===== ステップ4: 実行時間を計算 =====
+        elapsed_time = (end_time - start_time) * 1000
+        # (end_time - start_time): 経過時間を秒単位で計算
+        # * 1000: 秒をミリ秒に変換（1秒 = 1000ミリ秒）
+        # 例: 0.123秒 → 123ミリ秒
+        
+        # ===== ステップ5: ログ出力 =====
+        logger.info(f"⏱ {func_name}() の実行時間: {elapsed_time:.2f}ms")
+        # {elapsed_time:.2f}: 小数点以下2桁で表示
+        # .2f は「float型を小数点以下2桁で表示」の意味
+        # 例: 123.456 → "123.46ms"
+        
+        return result
+        # 元の関数の戻り値を返す
+    
+    return wrapper
+    # ラッパー関数を返す
+
+
+# ===================================================================
+# デコレーター3: エラーをキャッチしてログ出力
+# ===================================================================
+
+def log_errors(func: Callable) -> Callable:
+    """
+    関数内のエラーをキャッチしてログに記録するデコレーター
+    
+    動作:
+    1. try-exceptで関数を実行
+    2. 例外が発生したらログに記録
+    3. スタックトレース（エラーの詳細情報）も出力
+    4. 例外を再度投げる（上位で処理できるように）
+    
+    使用例:
+        @log_errors
+        def risky_function():
+            return 10 / 0  # ZeroDivisionError
+        
+        try:
+            risky_function()
+        except ZeroDivisionError:
+            print("エラーをキャッチしました")
+        
+        # ログ出力:
+        # ❌ risky_function() でエラー発生: ZeroDivisionError: ...
+        # スタックトレース: ...
+    
+    Args:
+        func: デコレートする関数
+    
+    Returns:
+        ラップされた関数
+    """
+    
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        func_name = func.__name__
+        # 関数名を取得
+        
+        try:
+            # ===== ステップ1: 関数を実行（try ブロック） =====
+            return func(*args, **kwargs)
+            # 正常に実行できたら、そのまま戻り値を返す
+            # ここでreturnするので、exceptブロックは実行されない
+        
+        except Exception as e:
+            # ===== ステップ2: 例外をキャッチ =====
+            # Exception: すべての例外の基底クラス
+            # as e: 例外オブジェクトを変数eに格納
+            
+            # エラー情報をログ出力
+            logger.error(f"❌ {func_name}() でエラー発生: {type(e).__name__}: {e}")
+            # logger.error(): ERRORレベルでログ出力（重大なエラー）
+            # type(e).__name__: 例外の型名を取得（例: "ZeroDivisionError"）
+            # {e}: 例外メッセージ（例: "division by zero"）
+            
+            # ===== ステップ3: スタックトレースをログ出力 =====
+            logger.error(f"スタックトレース:\n{traceback.format_exc()}")
+            # traceback.format_exc(): スタックトレースを文字列で取得
+            # スタックトレース: エラーが発生した経路を詳細に表示
+            # \n: 改行文字（見やすくするため）
+            
+            # ===== ステップ4: 例外を再送出 =====
+            raise
+            # raise: 例外をそのまま投げ直す
+            # 上位の呼び出し元で処理できるようにするため
+            # raiseを書かないと、例外が握りつぶされてしまう
+    
+    return wrapper
+
+
+# ===================================================================
+# デコレーター4: 実行回数をカウント
+# ===================================================================
+
+def count_calls(func: Callable) -> Callable:
+    """
+    関数の呼び出し回数をカウントするデコレーター
+    
+    動作:
+    1. wrapper関数に call_count 属性を追加
+    2. 関数が呼ばれるたびに call_count を +1
+    3. ログに現在のカウントを出力
+    
+    使用例:
+        @count_calls
+        def my_function():
+            pass
+        
+        my_function()
+        my_function()
+        print(my_function.call_count)  # 2
+        
+        # ログ出力:
+        # 📊 my_function() 呼び出し回数: 1回
+        # 📊 my_function() 呼び出し回数: 2回
+    
+    Args:
+        func: デコレートする関数
+    
+    Returns:
+        ラップされた関数（call_count属性付き）
+    """
+    
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        # ===== ステップ1: 呼び出し回数をカウント =====
+        wrapper.call_count += 1
+        # wrapper.call_count: wrapper関数の属性（後で初期化）
+        # += 1: 1ずつ増やす（インクリメント）
+        # Pythonでは関数もオブジェクトなので、属性を持てる
+        
+        func_name = func.__name__
+        # 関数名を取得
+        
+        # ===== ステップ2: カウントをログ出力 =====
+        logger.debug(f"📊 {func_name}() 呼び出し回数: {wrapper.call_count}回")
+        # logger.debug(): DEBUGレベルでログ出力
+        # DEBUGは詳細情報用（本番環境では通常オフにする）
+        
+        # ===== ステップ3: 実際の関数を実行 =====
+        return func(*args, **kwargs)
+        # 元の関数を実行して結果を返す
+    
+    # ===== call_count 属性を初期化 =====
+    wrapper.call_count = 0
+    # wrapper関数に call_count という属性を追加
+    # 初期値は 0
+    # この行がないと、wrapper.call_count += 1 でエラーになる
+    
+    return wrapper
+    # call_count属性を持つwrapper関数を返す
+
+
+# ===================================================================
+# デコレーター5: 引数と戻り値を詳細にログ出力
+# ===================================================================
+
+def log_detailed(func: Callable) -> Callable:
+    """
+    引数と戻り値を詳細にログ出力するデコレーター
+    
+    動作:
+    1. 関数名を表示
+    2. 位置引数を1つずつ型と値を表示
+    3. キーワード引数を1つずつ型と値を表示
+    4. 関数を実行
+    5. 戻り値の型と値を表示
+    
+    使用例:
+        @log_detailed
+        def calculate(x, y):
+            return x + y
+        
+        calculate(3, 5)
+        
+        # ログ出力:
+        # ============================================================
+        # 関数: calculate()
+        # ============================================================
+        # 位置引数:
+        #   [0] int: 3
+        #   [1] int: 5
+        # 戻り値: int = 8
+        # ============================================================
+    
+    Args:
+        func: デコレートする関数
+    
+    Returns:
+        ラップされた関数
+    """
+    
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        func_name = func.__name__
+        # 関数名を取得
+        
+        # ===== ステップ1: ヘッダーを出力 =====
+        logger.debug(f"{'='*60}")
+        # {'='*60}: '='を60個繋げた文字列を作成
+        # 見やすくするための区切り線
+        
+        logger.debug(f"関数: {func_name}()")
+        # 関数名を表示
+        
+        logger.debug(f"{'='*60}")
+        # 区切り線
+        
+        # ===== ステップ2: 位置引数の詳細を出力 =====
+        if args:
+            # if args: argsが空でない場合（位置引数がある場合）
+            # 空のタプル()はFalsyな値（Falseと同じ扱い）
+            
+            logger.debug("位置引数:")
+            # ラベルを出力
+            
+            for i, arg in enumerate(args):
+                # enumerate(args): インデックスと値のペアを取得
+                # 例: args=(3, 5) → (0, 3), (1, 5) を順に取得
+                
+                logger.debug(f"  [{i}] {type(arg).__name__}: {arg!r}")
+                # "  ": インデント（2スペース）見やすくする
+                # [{i}]: インデックスを[]で囲む（例: [0]）
+                # type(arg).__name__: 引数の型名（例: "int"）
+                # {arg!r}: repr()で文字列化
+        
+        # ===== ステップ3: キーワード引数の詳細を出力 =====
+        if kwargs:
+            # kwargsが空でない場合
+            
+            logger.debug("キーワード引数:")
+            # ラベルを出力
+            
+            for key, value in kwargs.items():
+                # kwargs.items(): キーと値のペアを取得
+                # 例: kwargs={'x': 3} → ('x', 3) を取得
+                
+                logger.debug(f"  {key}: {type(value).__name__} = {value!r}")
+                # {key}: キー名（例: "x"）
+                # type(value).__name__: 値の型名
+                # {value!r}: 値を repr() で文字列化
+        
+        # ===== ステップ4: 実際の関数を実行 =====
+        result = func(*args, **kwargs)
+        # 元の関数を実行
+        
+        # ===== ステップ5: 戻り値の詳細を出力 =====
+        logger.debug(f"戻り値: {type(result).__name__} = {result!r}")
+        # 戻り値の型と値を表示
+        
+        logger.debug(f"{'='*60}")
+        # 区切り線（終了）
+        
+        return result
+        # 戻り値を返す
+    
+    return wrapper
+
+
+# ===================================================================
+# デコレーター6: リトライ機能（失敗時に再実行）
+# ===================================================================
+
+def retry(max_attempts: int = 3, delay: float = 1.0):
+    """
+    失敗時に自動でリトライするデコレーター（パラメータ付き）
+    
+    これは「デコレーターを返すデコレーター」（デコレーターファクトリー）
+    
+    動作:
+    1. 関数を実行
+    2. 例外が発生したら、指定秒数待機
+    3. 再度実行（最大試行回数まで）
+    4. すべて失敗したら例外を投げる
+    
+    使用例:
+        @retry(max_attempts=3, delay=1.0)
+        def unstable_api_call():
+            # 不安定なAPI呼び出し
+            pass
+        
+        # 1回目: 失敗 → 1秒待機
+        # 2回目: 失敗 → 1秒待機
+        # 3回目: 成功 → 完了
+    
+    Args:
+        max_attempts: 最大試行回数（デフォルト: 3回）
+        delay: 試行間の待機時間（秒、デフォルト: 1.0秒）
+    
+    Returns:
+        デコレーター関数
+    """
+    
+    def decorator(func: Callable) -> Callable:
+        # decorator: 実際のデコレーター
+        # retry()が呼ばれると、この decorator が返される
+        # @retry(max_attempts=3) → decorator関数が返される
+        
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            # wrapper: 実際に実行される関数
+            
+            func_name = func.__name__
+            # 関数名を取得
+            
+            # ===== 指定回数まで試行 =====
+            for attempt in range(1, max_attempts + 1):
+                # range(1, max_attempts + 1): 1からmax_attemptsまでの数列
+                # 例: max_attempts=3 → range(1, 4) → 1, 2, 3
+                # attemptは試行回数（1回目、2回目、3回目）
+                
+                try:
+                    # ===== ステップ1: 試行開始のログ =====
+                    logger.info(f"🔄 {func_name}() 試行 {attempt}/{max_attempts}")
+                    # 例: "🔄 api_call() 試行 1/3"
+                    
+                    # ===== ステップ2: 実際の関数を実行 =====
+                    result = func(*args, **kwargs)
+                    # 成功したらこの行が実行される
+                    
+                    # ===== ステップ3: 成功時のログ =====
+                    if attempt > 1:
+                        # 2回目以降の試行で成功した場合
+                        logger.info(f"✅ {func_name}() 成功（{attempt}回目で成功）")
+                        # 例: "✅ api_call() 成功（2回目で成功）"
+                    
+                    return result
+                    # 成功したら、結果を返してループを抜ける
+                
+                except Exception as e:
+                    # ===== ステップ4: 例外をキャッチ =====
+                    
+                    if attempt < max_attempts:
+                        # まだ試行回数が残っている場合
+                        
+                        logger.warning(
+                            f"⚠️ {func_name}() 失敗（{attempt}/{max_attempts}）: "
+                            f"{type(e).__name__}: {e}"
+                        )
+                        # logger.warning(): WARNINGレベルでログ出力
+                        # 警告レベル（エラーほど重大ではない）
+                        
+                        logger.info(f"⏳ {delay}秒待機後に再試行...")
+                        # 待機することを通知
+                        
+                        time.sleep(delay)
+                        # time.sleep(delay): 指定秒数だけ待機
+                        # 例: delay=1.0 → 1秒間停止
+                        # サーバーに負荷をかけないための待機
+                    
+                    else:
+                        # 最後の試行も失敗した場合
+                        
+                        logger.error(
+                            f"❌ {func_name}() 全ての試行が失敗しました "
+                            f"（{max_attempts}回試行）"
+                        )
+                        # 全て失敗したことをログ出力
+                        
+                        raise
+                        # 例外を再送出
+                        # 上位で処理できるようにする
+        
+        return wrapper
+        # wrapper関数を返す
+    
+    return decorator
+    # decorator関数を返す
+    # これにより @retry(max_attempts=3) が使える
+
+
+# ===================================================================
+# デコレーター7: 実行結果をキャッシュ（メモ化）
+# ===================================================================
+
+def cache_result(func: Callable) -> Callable:
+    """
+    関数の実行結果をキャッシュするデコレーター
+    
+    動作:
+    1. 引数をキーとして辞書にキャッシュを保存
+    2. 同じ引数で呼ばれたら、キャッシュから取得（関数を実行しない）
+    3. キャッシュヒット率をログに記録
+    
+    使用例:
+        @cache_result
+        def expensive_calculation(n):
+            time.sleep(1)  # 重い処理
+            return n * n
+        
+        expensive_calculation(5)  # 1秒かかる（初回）
+        expensive_calculation(5)  # 即座に返る（キャッシュ）
+    
+    注意:
+    - 引数がハッシュ可能（辞書のキーにできる）である必要がある
+    - 副作用のある関数には使用不可（結果が毎回変わる関数）
+    
+    Args:
+        func: デコレートする関数
+    
+    Returns:
+        ラップされた関数（clear_cache メソッド付き）
+    """
+    
+    # ===== キャッシュ用の変数を定義 =====
+    cache = {}
+    # cache: キャッシュを保存する辞書
+    # キー: 引数のタプル
+    # 値: 実行結果
+    
+    cache_hits = 0
+    # cache_hits: キャッシュヒットの回数（見つかった回数）
+    
+    cache_misses = 0
+    # cache_misses: キャッシュミスの回数（見つからなかった回数）
+    
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        nonlocal cache_hits, cache_misses
+        # nonlocal: 外側のスコープの変数を変更できるようにする
+        # これがないと、cache_hits += 1 でエラーになる
+        # nonlocal を使うと、外側の変数を参照・変更できる
+        
+        func_name = func.__name__
+        # 関数名を取得
+        
+        # ===== ステップ1: キャッシュキーを作成 =====
+        cache_key = (args, tuple(sorted(kwargs.items())))
+        # cache_key: 引数を元にキャッシュのキーを作成
+        # args: 位置引数のタプル（例: (5,)）
+        # kwargs.items(): キーと値のペア（例: [('x', 3), ('y', 5)]）
+        # sorted(...): キーワード引数を名前順にソート（順序に依存しないようにする）
+        # tuple(...): リストをタプルに変換（辞書のキーにするため）
+        # 最終的なキー例: ((5,), (('x', 3), ('y', 5)))
+        
+        # ===== ステップ2: キャッシュにあるかチェック =====
+        if cache_key in cache:
+            # cache_key が cache 辞書に存在するか確認
+            # 存在する = 以前に同じ引数で実行済み
+            
+            cache_hits += 1
+            # キャッシュヒット回数を +1
+            
+            logger.debug(
+                f"💾 {func_name}() キャッシュヒット "
+                f"（ヒット率: {cache_hits}/{cache_hits + cache_misses}）"
+            )
+            # ヒット率を計算して表示
+            # 例: "💾 expensive_calc() キャッシュヒット（ヒット率: 3/5）"
+            
+            return cache[cache_key]
+            # キャッシュから結果を取得して返す
+            # 関数を実行しないので高速
+        
+        # ===== ステップ3: キャッシュにない場合は実行 =====
+        cache_misses += 1
+        # キャッシュミス回数を +1
+        
+        logger.debug(f"🔍 {func_name}() キャッシュミス（新規計算）")
+        # キャッシュミスをログ出力
+        
+        result = func(*args, **kwargs)
+        # 実際に関数を実行
+        # この計算結果をキャッシュに保存する
+        
+        # ===== ステップ4: 結果をキャッシュに保存 =====
+        cache[cache_key] = result
+        # cache辞書にキーと結果を保存
+        # 次回以降、同じ引数で呼ばれたらこの結果を返す
+        
+        return result
+        # 計算結果を返す
+    
+    # ===== キャッシュクリア用のメソッドを追加 =====
+    def clear_cache():
+        """キャッシュをクリアする関数"""
+        cache.clear()
+        # cache.clear(): 辞書の中身を全て削除
+        
+        logger.info(f"🗑️ {func.__name__}() のキャッシュをクリアしました")
+        # キャッシュをクリアしたことをログ出力
+    
+    wrapper.clear_cache = clear_cache
+    # wrapper関数に clear_cache メソッドを追加
+    # これにより、expensive_calc.clear_cache() のように呼び出せる
+    
+    return wrapper
+    # キャッシュ機能付きのwrapper関数を返す
+
+
+# ===================================================================
+# デコレーター8: 引数の検証
+# ===================================================================
+
+def validate_args(**validators):
+    """
+    関数の引数を検証するデコレーター（パラメータ付き）
+    
+    動作:
+    1. 引数名と検証関数の辞書を受け取る
+    2. 関数実行前に各引数を検証関数でチェック
+    3. 検証に失敗したらValueErrorを投げる
+    
+    使用例:
+        @validate_args(
+            age=lambda x: isinstance(x, int) and x >= 0,
+            name=lambda x: isinstance(x, str) and len(x) > 0
+        )
+        def register_user(name, age):
+            pass
+        
+        register_user("太郎", 25)   # OK
+        register_user("", 25)       # ValueError（名前が空）
+        register_user("太郎", -1)   # ValueError（年齢がマイナス）
+    
+    Args:
+        **validators: 引数名と検証関数の辞書
+            キー: 引数名（文字列）
+            値: 検証関数（bool を返す関数）
+    
+    Returns:
+        デコレーター関数
+    """
+    
+    def decorator(func: Callable) -> Callable:
+        # decorator: 実際のデコレーター
+        
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            func_name = func.__name__
+            # 関数名を取得
+            
+            # ===== ステップ1: 関数のシグネチャを取得 =====
+            import inspect
+            # inspectモジュール: 関数の情報を調べるモジュール
+            
+            sig = inspect.signature(func)
+            # signature(func): 関数のシグネチャ（引数情報）を取得
+            # 引数名、デフォルト値、型ヒントなどの情報が含まれる
+            
+            bound_args = sig.bind(*args, **kwargs)
+            # bind(*args, **kwargs): 実際の引数を引数名にバインド
+            # 位置引数とキーワード引数を引数名に対応付ける
+            # 例: func(a, b) に (1, 2) を渡すと {'a': 1, 'b': 2}
+            
+            bound_args.apply_defaults()
+            # apply_defaults(): デフォルト値を適用
+            # 省略された引数にデフォルト値を設定
+            
+            # ===== ステップ2: 各引数を検証 =====
+            for arg_name, validator in validators.items():
+                # validators.items(): 引数名と検証関数のペアを取得
+                # 例: ('age', lambda x: x >= 0)
+                
+                if arg_name in bound_args.arguments:
+                    # bound_args.arguments: 実際に渡された引数の辞書
+                    # arg_nameが引数に含まれているかチェック
+                    
+                    value = bound_args.arguments[arg_name]
+                    # 引数の値を取得
+                    # 例: arg_name='age' → value=25
+                    
+                    # ===== 検証関数を実行 =====
+                    if not validator(value):
+                        # validator(value): 検証関数に値を渡して実行
+                        # 例: (lambda x: x >= 0)(25) → True
+                        # not True → False なので、このブロックは実行されない
+                        
+                        # 検証失敗の場合
+                        error_msg = (
+                            f"{func_name}() の引数 '{arg_name}' が不正です: "
+                            f"{value!r}"
+                        )
+                        # エラーメッセージを作成
+                        # 例: "register_user() の引数 'age' が不正です: -1"
+                        
+                        logger.error(f"❌ {error_msg}")
+                        # エラーログを出力
+                        
+                        raise ValueError(error_msg)
+                        # ValueErrorを投げる
+                        # 関数の実行は中断される
+                    
+                    logger.debug(f"✅ {arg_name}={value!r} 検証OK")
+                    # 検証成功のログ出力（DEBUGレベル）
+            
+            # ===== ステップ3: 実際の関数を実行 =====
+            return func(*args, **kwargs)
+            # 検証を全てパスしたので、関数を実行
+        
+        return wrapper
+    
+    return decorator
+    # decorator関数を返す
+
+
+# ===================================================================
+# デコレーター9: デバッグ情報を出力
+# ===================================================================
+
+def debug(func: Callable) -> Callable:
+    """
+    デバッグ情報を詳細に出力するデコレーター
+    
+    動作:
+    1. 関数名、モジュール名を表示
+    2. ソースコードの場所（ファイル名、行番号）を表示
+    3. 引数情報を表示
+    4. 関数を実行
+    5. 戻り値を表示
+    
+    使用例:
+        @debug
+        def my_function(x, y):
+            return x + y
+        
+        my_function(3, 5)
+        
+        # ログ出力:
+        # ==================== 🐛 DEBUG INFO ====================
+        # 関数名: my_function
+        # モジュール: __main__
+        # 定義場所: test.py:10
+        # 引数: args=(3, 5), kwargs={}
+        # 実行開始...
+        # 実行完了: 戻り値=8
+        # ========================================================
+    
+    Args:
+        func: デコレートする関数
+    
+    Returns:
+        ラップされた関数
+    """
+    
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        import inspect
+        # inspectモジュール: 関数の詳細情報を取得
+        
+        func_name = func.__name__
+        # 関数名を取得
+        
+        # ===== ステップ1: ヘッダーを出力 =====
+        logger.debug(f"{'🐛 DEBUG INFO ':=^60}")
+        # {:=^60}: 文字列を中央寄せして、左右を'='で埋める
+        # ^ は中央寄せ、60は全体の幅
+        # 出力例: "============== 🐛 DEBUG INFO =============="
+        
+        logger.debug(f"関数名: {func_name}")
+        # 関数名を表示
+        
+        logger.debug(f"モジュール: {func.__module__}")
+        # func.__module__: 関数が定義されているモジュール名
+        # 例: "__main__", "mymodule"
+        
+        # ===== ステップ2: ソースコードの場所を表示 =====
+        try:
+            # try-except: エラーが発生する可能性がある処理
+            
+            source_file = inspect.getfile(func)
+            # getfile(func): 関数が定義されているファイルのパス
+            # 例: "/path/to/script.py"
+            
+            source_line = inspect.getsourcelines(func)[1]
+            # getsourcelines(func): 関数のソースコードと開始行番号を取得
+            # [1]で行番号を取得（[0]はソースコードのリスト）
+            # 例: 25（25行目から定義されている）
+            
+            logger.debug(f"定義場所: {source_file}:{source_line}")
+            # ファイル名:行番号 の形式で表示
+            # 例: "test.py:25"
+        
+        except:
+            # エラーが発生した場合（ビルトイン関数など）
+            pass
+            # 何もしない（skipする）
+        
+        # ===== ステップ3: 引数情報を表示 =====
+        logger.debug(f"引数: args={args}, kwargs={kwargs}")
+        # 位置引数とキーワード引数を表示
+        
+        # ===== ステップ4: 実行 =====
+        logger.debug("実行開始...")
+        # 実行開始のログ
+        
+        result = func(*args, **kwargs)
+        # 実際の関数を実行
+        
+        logger.debug(f"実行完了: 戻り値={result!r}")
+        # 実行完了と戻り値を表示
+        
+        logger.debug(f"{'='*60}")
+        # フッター（区切り線）
+        
+        return result
+        # 戻り値を返す
+    
+    return wrapper
+
+
+# ===================================================================
+# デコレーター10: 複数のデコレーターを組み合わせ
+# ===================================================================
+
+def log_all(func: Callable) -> Callable:
+    """
+    よく使うデコレーターを全部適用する便利デコレーター
+    
+    動作:
+    1. エラーハンドリング（log_errors）
+    2. 実行時間計測（log_time）
+    3. 関数呼び出しログ（log_call）
+    を全て適用する
+    
+    使用例:
+        @log_all
+        def important_function(x, y):
+            return x * y
+        
+        important_function(7, 8)
+        
+        # ログ出力:
+        # → 呼び出し: important_function(7, 8)
+        # ⏱ important_function() の実行時間: 0.05ms
+        # ← 完了: important_function() → 56
+    
+    Args:
+        func: デコレートする関数
+    
+    Returns:
+        ラップされた関数（複数のデコレーターが適用済み）
+    """
+    
+    # ===== 複数のデコレーターを適用 =====
+    # 注意: 適用順序は「下から上」に実行される
+    
+    func = log_errors(func)
+    # まずエラーハンドリングを適用
+    # func = log_errors(元の関数)
+    
+    func = log_time(func)
+    # 次に時間計測を適用
+    # func = log_time(log_errors(元の関数))
+    
+    func = log_call(func)
+    # 最後に呼び出しログを適用
+    # func = log_call(log_time(log_errors(元の関数)))
+    
+    # 実行順序:
+    # 1. log_call が実行開始ログを出力
+    # 2. log_time が開始時刻を記録
+    # 3. log_errors がtry-exceptで囲んで元の関数を実行
+    # 4. 元の関数が実行される
+    # 5. log_errors が例外チェック（なければスルー）
+    # 6. log_time が実行時間を計算・出力
+    # 7. log_call が完了ログを出力
+    
+    return func
+    # 複数のデコレーターが適用された関数を返す
+
+
+# ===================================================================
+# 使用例デモ
+# ===================================================================
+
+if __name__ == "__main__":
+    # if __name__ == "__main__": このファイルが直接実行された場合のみ実行
+    # インポートされた場合は実行されない
+    
+    print("=" * 70)
+    # "="を70個並べて区切り線を作成
+    
+    print("ロギングデコレーターのデモ")
+    # タイトルを表示
+    
+    print("=" * 70)
+    # 区切り線
+    
+    # ===================================================================
+    # 例1: 基本的な関数呼び出しログ
+    # ===================================================================
+    
+    print("\n■ 例1: @log_call")
+    # \n: 改行（見やすくするため）
+    
+    print("-" * 70)
+    # "-"で区切り線
+    
+    @log_call
+    # log_callデコレーターを適用
+    def add(a, b):
+        """2つの数を足す関数"""
+        return a + b
+        # a + b の結果を返す
+    
+    result = add(3, 5)
+    # add関数を呼び出し
+    # ログが自動で出力される:
+    # → 呼び出し: add(3, 5)
+    # ← 完了: add() → 8
+    
+    print(f"結果: {result}")
+    # 結果を表示: "結果: 8"
+    
+    # ===================================================================
+    # 例2: 実行時間の計測
+    # ===================================================================
+    
+    print("\n■ 例2: @log_time")
+    print("-" * 70)
+    
+    @log_time
+    # log_timeデコレーターを適用
+    def slow_function():
+        """意図的に遅い関数"""
+        time.sleep(0.1)
+        # 0.1秒（100ミリ秒）待機
+        return "完了"
+    
+    slow_function()
+    # 関数を実行
+    # ログ出力: "⏱ slow_function() の実行時間: 100.xxms"
+    
+    # ===================================================================
+    # 例3: エラーハンドリング
+    # ===================================================================
+    
+    print("\n■ 例3: @log_errors")
+    print("-" * 70)
+    
+    @log_errors
+    # log_errorsデコレーターを適用
+    def risky_function(x):
+        """エラーが発生する可能性がある関数"""
+        return 10 / x
+        # x で 10 を割る
+        # x=0 のとき ZeroDivisionError が発生
+    
+    try:
+        # try-except: エラーをキャッチする
+        
+        risky_function(2)
+        # x=2 の場合: 10/2=5（正常）
+        # ログは出力されない（エラーがないため）
+        
+        risky_function(0)
+        # x=0 の場合: 10/0（ZeroDivisionError）
+        # ログ出力: "❌ risky_function() でエラー発生: ..."
+    
+    except ZeroDivisionError:
+        # ZeroDivisionError をキャッチ
+        print("エラーをキャッチしました")
+        # メッセージを表示
+    
+    # ===================================================================
+    # 例4: 呼び出し回数のカウント
+    # ===================================================================
+    
+    print("\n■ 例4: @count_calls")
+    print("-" * 70)
+    
+    @count_calls
+    # count_callsデコレーターを適用
+    def counter_test():
+        """カウント用のテスト関数"""
+        return "実行"
+    
+    counter_test()
+    # 1回目の呼び出し
+    # ログ: "📊 counter_test() 呼び出し回数: 1回"
+    
+    counter_test()
+    # 2回目の呼び出し
+    # ログ: "📊 counter_test() 呼び出し回数: 2回"
+    
+    counter_test()
+    # 3回目の呼び出し
+    # ログ: "📊 counter_test() 呼び出し回数: 3回"
+    
+    print(f"呼び出し回数: {counter_test.call_count}")
+    # call_count属性で回数を取得
+    # 出力: "呼び出し回数: 3"
+    
+    # ===================================================================
+    # 例5: リトライ
+    # ===================================================================
+    
+    print("\n■ 例5: @retry")
+    print("-" * 70)
+    
+    attempt_count = 0
+    # グローバル変数: 試行回数をカウント
+    
+    @retry(max_attempts=3, delay=0.5)
+    # 最大3回まで試行、0.5秒間隔
+    def unstable_function():
+        """不安定な関数（わざと失敗させる）"""
+        global attempt_count
+        # global: グローバル変数を変更するために必要
+        
+        attempt_count += 1
+        # 試行回数を +1
+        
+        if attempt_count < 2:
+            # 1回目の呼び出しの場合
+            raise Exception("一時的なエラー")
+            # わざと例外を投げる
+        
+        return "成功"
+        # 2回目以降は成功
+    
+    result = unstable_function()
+    # 関数を実行
+    # 1回目: エラー → 0.5秒待機
+    # 2回目: 成功
+    # ログ出力:
+    # 🔄 unstable_function() 試行 1/3
+    # ⚠️ unstable_function() 失敗（1/3）: ...
+    # ⏳ 0.5秒待機後に再試行...
+    # 🔄 unstable_function() 試行 2/3
+    # ✅ unstable_function() 成功（2回目で成功）
+    
+    print(f"結果: {result}")
+    # 出力: "結果: 成功"
+    
+    # ===================================================================
+    # 例6: キャッシュ
+    # ===================================================================
+    
+    print("\n■ 例6: @cache_result")
+    print("-" * 70)
+    
+    @cache_result
+    # キャッシュデコレーターを適用
+    @log_time
+    # 時間計測デコレーターも適用（キャッシュの効果を確認するため）
+    def expensive_calc(n):
+        """重い計算の模擬"""
+        time.sleep(0.1)
+        # 0.1秒待機（重い処理をシミュレート）
+        return n ** 2
+        # nの2乗を返す
+    
+    print("1回目の呼び出し:")
+    expensive_calc(5)
+    # 初回: 計算を実行（0.1秒かかる）
+    # ログ:
+    # 🔍 expensive_calc() キャッシュミス（新規計算）
+    # ⏱ expensive_calc() の実行時間: 100.xxms
+    
+    print("2回目の呼び出し（キャッシュ）:")
+    expensive_calc(5)
+    # 2回目: キャッシュから取得（即座に返る）
+    # ログ:
+    # 💾 expensive_calc() キャッシュヒット（ヒット率: 1/2）
+    # ⏱ expensive_calc() の実行時間: 0.xxms（ほぼ0秒）
+    
+    # ===================================================================
+    # 例7: 全部盛り
+    # ===================================================================
+    
+    print("\n■ 例7: @log_all")
+    print("-" * 70)
+    
+    @log_all
+    # log_call + log_time + log_errors を全て適用
+    def important_function(x, y):
+        """重要な関数"""
+        time.sleep(0.05)
+        # 0.05秒待機
+        return x * y
+        # x * y を返す
+    
+    important_function(7, 8)
+    # 関数を実行
+    # ログ出力:
+    # → 呼び出し: important_function(7, 8)
+    # ⏱ important_function() の実行時間: 50.xxms
+    # ← 完了: important_function() → 56
+    
+    print("\n" + "=" * 70)
+    print("デモ完了！")
+    print("=" * 70)
+
+
+# ===================================================================
+# まとめ
+# ===================================================================
+
+"""
+【デコレーターの基本パターン】
+
+1. シンプルなデコレーター:
+   def my_decorator(func):
+       @functools.wraps(func)
+       def wrapper(*args, **kwargs):
+           # 前処理
+           result = func(*args, **kwargs)
+           # 後処理
+           return result
+       return wrapper
+
+2. パラメータ付きデコレーター:
+   def my_decorator(param1, param2):
+       def decorator(func):
+           @functools.wraps(func)
+           def wrapper(*args, **kwargs):
+               # param1, param2 を使った処理
+               return func(*args, **kwargs)
+           return wrapper
+       return decorator
+
+3. クラスベースのデコレーター:
+   class MyDecorator:
+       def __init__(self, func):
+           self.func = func
+       
+       def __call__(self, *args, **kwargs):
+           # 処理
+           return self.func(*args, **kwargs)
+
+【重要なポイント】
+- @functools.wraps(func) を忘れずに使う
+- *args, **kwargs で任意の引数を受け取る
+- nonlocal で外側の変数を変更
+- 戻り値を忘れずに return する
+
+【実務でよく使うデコレーター】
+1. @log_call: 関数呼び出しログ
+2. @log_time: 実行時間計測
+3. @log_errors: エラーハンドリング
+4. @retry: リトライ機能
+5. @cache_result: キャッシュ（メモ化）
+
+これらを組み合わせて使うことで、
+ログ機能を簡単に追加できます！
+"""
+
+
+"""
+実務で使えるロギングデコレーター集
+
+このモジュールをインポートして、関数に @log_call を付けるだけで
+ロギング機能を追加できます。
+
+使い方:
+    from logging_decorators import log_call, log_time, log_errors
+    
+    @log_call
+    def my_function():
+        pass
+
+作成者: 2025
+"""
+
+import logging
+import time
+import functools
+from datetime import datetime
+from typing import Any, Callable
+import traceback
+import json
+
+
+# ===================================================================
+# ロガーの基本設定
+# ===================================================================
+
+# モジュールレベルのロガーを作成
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
+# コンソールハンドラーの設定
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.DEBUG)
+
+# フォーマッターの設定
+formatter = logging.Formatter(
+    '[%(asctime)s] %(levelname)-8s [%(name)s:%(funcName)s:%(lineno)d] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+console_handler.setFormatter(formatter)
+
+# ハンドラーをロガーに追加（重複防止）
+if not logger.handlers:
+    logger.addHandler(console_handler)
+
+
+# ===================================================================
+# デコレーター1: 関数呼び出しをログ出力
+# ===================================================================
+
+def log_call(func: Callable) -> Callable:
+    """
+    関数の呼び出しをログに記録するデコレーター
+    
+    機能:
+    - 関数の開始をログ出力
+    - 引数の値をログ出力
+    - 戻り値をログ出力
+    
+    使用例:
+        @log_call
+        def add(a, b):
+            return a + b
+        
+        result = add(3, 5)  # ログが自動で出力される
+    
+    Args:
+        func: デコレートする関数
+    
+    Returns:
+        ラップされた関数
+    """
+    @functools.wraps(func)  # 元の関数の情報を保持
+    def wrapper(*args, **kwargs):
+        # 関数名を取得
+        func_name = func.__name__
+        
+        # 引数をフォーマット
+        args_repr = [repr(a) for a in args]  # 位置引数
+        kwargs_repr = [f"{k}={v!r}" for k, v in kwargs.items()]  # キーワード引数
+        signature = ", ".join(args_repr + kwargs_repr)
+        
+        # 関数開始のログ
+        logger.info(f"→ 呼び出し: {func_name}({signature})")
+        
+        # 実際の関数を実行
+        result = func(*args, **kwargs)
+        
+        # 関数終了のログ（戻り値付き）
+        logger.info(f"← 完了: {func_name}() → {result!r}")
+        
+        return result
+    
+    return wrapper
+
+
+# ===================================================================
+# デコレーター2: 実行時間を計測
+# ===================================================================
+
+def log_time(func: Callable) -> Callable:
+    """
+    関数の実行時間を計測してログに記録するデコレーター
+    
+    機能:
+    - 関数の実行時間を自動計測
+    - ミリ秒単位で表示
+    - 遅い関数を簡単に特定できる
+    
+    使用例:
+        @log_time
+        def slow_function():
+            time.sleep(1)
+        
+        slow_function()  # "実行時間: 1000.5ms" とログ出力
+    
+    Args:
+        func: デコレートする関数
+    
+    Returns:
+        ラップされた関数
+    """
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        func_name = func.__name__
+        
+        # 開始時刻を記録
+        start_time = time.time()
+        
+        # 実際の関数を実行
+        result = func(*args, **kwargs)
+        
+        # 終了時刻を記録
+        end_time = time.time()
+        
+        # 実行時間を計算（ミリ秒）
+        elapsed_time = (end_time - start_time) * 1000
+        
+        # ログ出力
+        logger.info(f"⏱ {func_name}() の実行時間: {elapsed_time:.2f}ms")
+        
+        return result
+    
+    return wrapper
+
+
+# ===================================================================
+# デコレーター3: エラーをキャッチしてログ出力
+# ===================================================================
+
+def log_errors(func: Callable) -> Callable:
+    """
+    関数内のエラーをキャッチしてログに記録するデコレーター
+    
+    機能:
+    - 例外が発生したらログに記録
+    - スタックトレースも出力
+    - 例外は再送出（上位で処理可能）
+    
+    使用例:
+        @log_errors
+        def risky_function():
+            return 10 / 0  # エラーが自動でログに記録される
+    
+    Args:
+        func: デコレートする関数
+    
+    Returns:
+        ラップされた関数
+    """
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        func_name = func.__name__
+        
+        try:
+            # 実際の関数を実行
+            return func(*args, **kwargs)
+        
+        except Exception as e:
+            # エラー情報をログ出力
+            logger.error(f"❌ {func_name}() でエラー発生: {type(e).__name__}: {e}")
+            
+            # スタックトレースをログ出力
+            logger.error(f"スタックトレース:\n{traceback.format_exc()}")
+            
+            # 例外を再送出（上位で処理できるように）
+            raise
+    
+    return wrapper
+
+
+# ===================================================================
+# デコレーター4: 実行回数をカウント
+# ===================================================================
+
+def count_calls(func: Callable) -> Callable:
+    """
+    関数の呼び出し回数をカウントするデコレーター
+    
+    機能:
+    - 関数が何回呼ばれたかカウント
+    - 関数オブジェクトに .call_count 属性を追加
+    
+    使用例:
+        @count_calls
+        def my_function():
+            pass
+        
+        my_function()
+        my_function()
+        print(my_function.call_count)  # 2
+    
+    Args:
+        func: デコレートする関数
+    
+    Returns:
+        ラップされた関数
+    """
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        # 呼び出し回数をカウント
+        wrapper.call_count += 1
+        
+        func_name = func.__name__
+        logger.debug(f"📊 {func_name}() 呼び出し回数: {wrapper.call_count}回")
+        
+        # 実際の関数を実行
+        return func(*args, **kwargs)
+    
+    # call_count 属性を初期化
+    wrapper.call_count = 0
+    
+    return wrapper
+
+
+# ===================================================================
+# デコレーター5: 引数と戻り値を詳細にログ出力
+# ===================================================================
+
+def log_detailed(func: Callable) -> Callable:
+    """
+    引数と戻り値を詳細にログ出力するデコレーター
+    
+    機能:
+    - 引数の型と値を詳細に表示
+    - 戻り値の型と値を詳細に表示
+    - デバッグ時に便利
+    
+    使用例:
+        @log_detailed
+        def calculate(x, y):
+            return x + y
+    
+    Args:
+        func: デコレートする関数
+    
+    Returns:
+        ラップされた関数
+    """
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        func_name = func.__name__
+        
+        # 引数の詳細情報を作成
+        logger.debug(f"{'='*60}")
+        logger.debug(f"関数: {func_name}()")
+        logger.debug(f"{'='*60}")
+        
+        # 位置引数の詳細
+        if args:
+            logger.debug("位置引数:")
+            for i, arg in enumerate(args):
+                logger.debug(f"  [{i}] {type(arg).__name__}: {arg!r}")
+        
+        # キーワード引数の詳細
+        if kwargs:
+            logger.debug("キーワード引数:")
+            for key, value in kwargs.items():
+                logger.debug(f"  {key}: {type(value).__name__} = {value!r}")
+        
+        # 実際の関数を実行
+        result = func(*args, **kwargs)
+        
+        # 戻り値の詳細
+        logger.debug(f"戻り値: {type(result).__name__} = {result!r}")
+        logger.debug(f"{'='*60}")
+        
+        return result
+    
+    return wrapper
+
+
+# ===================================================================
+# デコレーター6: リトライ機能（失敗時に再実行）
+# ===================================================================
+
+def retry(max_attempts: int = 3, delay: float = 1.0):
+    """
+    失敗時に自動でリトライするデコレーター（パラメータ付き）
+    
+    機能:
+    - 指定回数まで自動で再実行
+    - 各試行の間に待機時間を設定
+    - 失敗の履歴をログに記録
+    
+    使用例:
+        @retry(max_attempts=3, delay=1.0)
+        def unstable_api_call():
+            # 不安定なAPI呼び出し
+            pass
+    
+    Args:
+        max_attempts: 最大試行回数
+        delay: 試行間の待機時間（秒）
+    
+    Returns:
+        デコレーター関数
+    """
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            func_name = func.__name__
+            
+            # 指定回数まで試行
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    logger.info(f"🔄 {func_name}() 試行 {attempt}/{max_attempts}")
+                    
+                    # 実際の関数を実行
+                    result = func(*args, **kwargs)
+                    
+                    # 成功したらログを出して返す
+                    if attempt > 1:
+                        logger.info(f"✅ {func_name}() 成功（{attempt}回目で成功）")
+                    
+                    return result
+                
+                except Exception as e:
+                    # 最後の試行でもない場合
+                    if attempt < max_attempts:
+                        logger.warning(
+                            f"⚠️ {func_name}() 失敗（{attempt}/{max_attempts}）: "
+                            f"{type(e).__name__}: {e}"
+                        )
+                        logger.info(f"⏳ {delay}秒待機後に再試行...")
+                        time.sleep(delay)
+                    else:
+                        # 最後の試行も失敗
+                        logger.error(
+                            f"❌ {func_name}() 全ての試行が失敗しました "
+                            f"（{max_attempts}回試行）"
+                        )
+                        raise
+        
+        return wrapper
+    
+    return decorator
+
+
+# ===================================================================
+# デコレーター7: 実行結果をキャッシュ（メモ化）
+# ===================================================================
+
+def cache_result(func: Callable) -> Callable:
+    """
+    関数の実行結果をキャッシュするデコレーター
+    
+    機能:
+    - 同じ引数での呼び出しは結果を再利用
+    - 計算時間を大幅に短縮
+    - キャッシュのヒット率をログ出力
+    
+    注意:
+    - 引数がハッシュ可能である必要がある
+    - 副作用のある関数には使用不可
+    
+    使用例:
+        @cache_result
+        def expensive_calculation(n):
+            time.sleep(1)  # 重い処理
+            return n * n
+        
+        expensive_calculation(5)  # 1秒かかる
+        expensive_calculation(5)  # 即座に返る（キャッシュ）
+    
+    Args:
+        func: デコレートする関数
+    
+    Returns:
+        ラップされた関数
+    """
+    # キャッシュ用の辞書
+    cache = {}
+    cache_hits = 0
+    cache_misses = 0
+    
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        nonlocal cache_hits, cache_misses
+        
+        func_name = func.__name__
+        
+        # 引数からキャッシュキーを作成
+        # kwargs を sorted して順序に依存しないようにする
+        cache_key = (args, tuple(sorted(kwargs.items())))
+        
+        # キャッシュにあるかチェック
+        if cache_key in cache:
+            cache_hits += 1
+            logger.debug(
+                f"💾 {func_name}() キャッシュヒット "
+                f"（ヒット率: {cache_hits}/{cache_hits + cache_misses}）"
+            )
+            return cache[cache_key]
+        
+        # キャッシュにない場合は実行
+        cache_misses += 1
+        logger.debug(f"🔍 {func_name}() キャッシュミス（新規計算）")
+        
+        result = func(*args, **kwargs)
+        
+        # 結果をキャッシュに保存
+        cache[cache_key] = result
+        
+        return result
+    
+    # キャッシュクリア用のメソッドを追加
+    def clear_cache():
+        cache.clear()
+        logger.info(f"🗑️ {func.__name__}() のキャッシュをクリアしました")
+    
+    wrapper.clear_cache = clear_cache
+    
+    return wrapper
+
+
+# ===================================================================
+# デコレーター8: 引数の検証
+# ===================================================================
+
+def validate_args(**validators):
+    """
+    関数の引数を検証するデコレーター（パラメータ付き）
+    
+    機能:
+    - 引数の型や値を検証
+    - 不正な引数で呼ばれたらエラー
+    
+    使用例:
+        @validate_args(
+            age=lambda x: isinstance(x, int) and x >= 0,
+            name=lambda x: isinstance(x, str) and len(x) > 0
+        )
+        def register_user(name, age):
+            pass
+    
+    Args:
+        **validators: 引数名と検証関数の辞書
+    
+    Returns:
+        デコレーター関数
+    """
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            func_name = func.__name__
+            
+            # 関数のシグネチャを取得
+            import inspect
+            sig = inspect.signature(func)
+            bound_args = sig.bind(*args, **kwargs)
+            bound_args.apply_defaults()
+            
+            # 各引数を検証
+            for arg_name, validator in validators.items():
+                if arg_name in bound_args.arguments:
+                    value = bound_args.arguments[arg_name]
+                    
+                    # 検証関数を実行
+                    if not validator(value):
+                        error_msg = (
+                            f"{func_name}() の引数 '{arg_name}' が不正です: "
+                            f"{value!r}"
+                        )
+                        logger.error(f"❌ {error_msg}")
+                        raise ValueError(error_msg)
+                    
+                    logger.debug(f"✅ {arg_name}={value!r} 検証OK")
+            
+            # 実際の関数を実行
+            return func(*args, **kwargs)
+        
+        return wrapper
+    
+    return decorator
+
+
+# ===================================================================
+# デコレーター9: デバッグ情報を出力
+# ===================================================================
+
+def debug(func: Callable) -> Callable:
+    """
+    デバッグ情報を詳細に出力するデコレーター
+    
+    機能:
+    - 関数の全情報を出力
+    - ソースコードの場所
+    - 実行コンテキスト
+    
+    使用例:
+        @debug
+        def my_function():
+            pass
+    
+    Args:
+        func: デコレートする関数
+    
+    Returns:
+        ラップされた関数
+    """
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        import inspect
+        
+        func_name = func.__name__
+        
+        # 関数の情報を取得
+        logger.debug(f"{'🐛 DEBUG INFO ':=^60}")
+        logger.debug(f"関数名: {func_name}")
+        logger.debug(f"モジュール: {func.__module__}")
+        
+        # ソースコードの場所
+        try:
+            source_file = inspect.getfile(func)
+            source_line = inspect.getsourcelines(func)[1]
+            logger.debug(f"定義場所: {source_file}:{source_line}")
+        except:
+            pass
+        
+        # 引数情報
+        logger.debug(f"引数: args={args}, kwargs={kwargs}")
+        
+        # 実行
+        logger.debug("実行開始...")
+        result = func(*args, **kwargs)
+        logger.debug(f"実行完了: 戻り値={result!r}")
+        logger.debug(f"{'='*60}")
+        
+        return result
+    
+    return wrapper
+
+
+# ===================================================================
+# デコレーター10: 複数のデコレーターを組み合わせ
+# ===================================================================
+
+def log_all(func: Callable) -> Callable:
+    """
+    よく使うデコレーターを全部適用する便利デコレーター
+    
+    機能:
+    - エラーハンドリング
+    - 実行時間計測
+    - 関数呼び出しログ
+    
+    使用例:
+        @log_all
+        def important_function():
+            pass
+    
+    Args:
+        func: デコレートする関数
+    
+    Returns:
+        ラップされた関数
+    """
+    # 複数のデコレーターを適用
+    # 適用順序: 下から上に適用される
+    func = log_errors(func)  # まずエラーハンドリング
+    func = log_time(func)    # 次に時間計測
+    func = log_call(func)    # 最後に呼び出しログ
+    
+    return func
+
+
+# ===================================================================
+# 使用例デモ
+# ===================================================================
+
+if __name__ == "__main__":
+    print("=" * 70)
+    print("ロギングデコレーターのデモ")
+    print("=" * 70)
+    
+    # 例1: 基本的な関数呼び出しログ
+    print("\n■ 例1: @log_call")
+    print("-" * 70)
+    
+    @log_call
+    def add(a, b):
+        return a + b
+    
+    result = add(3, 5)
+    print(f"結果: {result}")
+    
+    # 例2: 実行時間の計測
+    print("\n■ 例2: @log_time")
+    print("-" * 70)
+    
+    @log_time
+    def slow_function():
+        time.sleep(0.1)
+        return "完了"
+    
+    slow_function()
+    
+    # 例3: エラーハンドリング
+    print("\n■ 例3: @log_errors")
+    print("-" * 70)
+    
+    @log_errors
+    def risky_function(x):
+        return 10 / x
+    
+    try:
+        risky_function(2)  # 正常
+        risky_function(0)  # エラー
+    except ZeroDivisionError:
+        print("エラーをキャッチしました")
+    
+    # 例4: 呼び出し回数のカウント
+    print("\n■ 例4: @count_calls")
+    print("-" * 70)
+    
+    @count_calls
+    def counter_test():
+        return "実行"
+    
+    counter_test()
+    counter_test()
+    counter_test()
+    print(f"呼び出し回数: {counter_test.call_count}")
+    
+    # 例5: リトライ
+    print("\n■ 例5: @retry")
+    print("-" * 70)
+    
+    attempt_count = 0
+    
+    @retry(max_attempts=3, delay=0.5)
+    def unstable_function():
+        global attempt_count
+        attempt_count += 1
+        if attempt_count < 2:
+            raise Exception("一時的なエラー")
+        return "成功"
+    
+    result = unstable_function()
+    print(f"結果: {result}")
+    
+    # 例6: キャッシュ
+    print("\n■ 例6: @cache_result")
+    print("-" * 70)
+    
+    @cache_result
+    @log_time
+    def expensive_calc(n):
+        time.sleep(0.1)  # 重い処理の模擬
+        return n ** 2
+    
+    print("1回目の呼び出し:")
+    expensive_calc(5)
+    
+    print("2回目の呼び出し（キャッシュ）:")
+    expensive_calc(5)
+    
+    # 例7: 全部盛り
+    print("\n■ 例7: @log_all")
+    print("-" * 70)
+    
+    @log_all
+    def important_function(x, y):
+        time.sleep(0.05)
+        return x * y
+    
+    important_function(7, 8)
+    
+    print("\n" + "=" * 70)
+    print("デモ完了！")
+    print("=" * 70)
