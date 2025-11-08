@@ -1,0 +1,718 @@
+# 🎯 デコレーター完全セットアップガイド
+
+## 📁 ステップ1: フォルダ構成
+
+以下のようにファイルを作成します：
+
+```
+C:\Users\yukik\Desktop\excel\
+├── decorators.py  ← デコレーター定義ファイル
+└── main.py        ← デコレーターを使うファイル
+```
+
+---
+
+## 📝 ステップ2: decorators.py を作成
+
+**手順**:
+1. メモ帳またはVSCodeを開く
+2. 以下のコードをコピー
+3. `decorators.py` として保存
+
+```python
+"""decorators.py - デコレーター定義ファイル"""
+
+import functools
+import time
+import logging
+
+# ロガーの設定
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+
+formatter = logging.Formatter(
+    '[%(asctime)s] %(levelname)-8s %(message)s',
+    datefmt='%H:%M:%S'
+)
+console_handler.setFormatter(formatter)
+
+if not logger.handlers:
+    logger.addHandler(console_handler)
+
+
+# デコレーター1: 関数呼び出しをログ出力
+def log_function_call(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        func_name = func.__name__
+        args_repr = [repr(a) for a in args]
+        kwargs_repr = [f"{k}={v!r}" for k, v in kwargs.items()]
+        signature = ", ".join(args_repr + kwargs_repr)
+        logger.info(f"→ 呼び出し: {func_name}({signature})")
+        result = func(*args, **kwargs)
+        logger.info(f"← 完了: {func_name}() → {result!r}")
+        return result
+    return wrapper
+
+
+# デコレーター2: 実行時間を計測
+def measure_execution_time(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        func_name = func.__name__
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        end_time = time.time()
+        elapsed_ms = (end_time - start_time) * 1000
+        logger.info(f"⏱ {func_name}() の実行時間: {elapsed_ms:.2f}ms")
+        return result
+    return wrapper
+
+
+# デコレーター3: エラーをキャッチ
+def handle_errors(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        func_name = func.__name__
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            logger.error(f"❌ {func_name}() でエラー発生: {type(e).__name__}: {e}")
+            import traceback
+            logger.error(f"スタックトレース:\n{traceback.format_exc()}")
+            raise
+    return wrapper
+
+
+# デコレーター4: リトライ機能
+def retry(max_attempts=3, delay_seconds=1.0):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            func_name = func.__name__
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    logger.info(f"🔄 {func_name}() 試行 {attempt}/{max_attempts}")
+                    result = func(*args, **kwargs)
+                    if attempt > 1:
+                        logger.info(f"✅ {func_name}() 成功（{attempt}回目）")
+                    return result
+                except Exception as e:
+                    if attempt < max_attempts:
+                        logger.warning(f"⚠️ {func_name}() 失敗（{attempt}/{max_attempts}）: {e}")
+                        logger.info(f"⏳ {delay_seconds}秒待機後に再試行...")
+                        time.sleep(delay_seconds)
+                    else:
+                        logger.error(f"❌ {func_name}() 全試行失敗")
+                        raise
+        return wrapper
+    return decorator
+
+
+# デコレーター5: 全部盛り
+def apply_all_logging(func):
+    func = handle_errors(func)
+    func = measure_execution_time(func)
+    func = log_function_call(func)
+    return func
+```
+
+---
+
+## 📝 ステップ3: main.py を作成
+
+**手順**:
+1. メモ帳またはVSCodeを開く
+2. 以下のコードをコピー
+3. `main.py` として保存（decorators.py と同じフォルダ）
+
+```python
+"""main.py - デコレーターを使うファイル"""
+
+# 重要！デコレーターをインポート
+from decorators import (
+    log_function_call,
+    measure_execution_time,
+    handle_errors,
+    retry,
+    apply_all_logging
+)
+
+import time
+
+
+# 例1: 基本的な使い方
+@log_function_call
+def add_numbers(a, b):
+    """2つの数を足す"""
+    return a + b
+
+
+# 例2: 実行時間を計測
+@measure_execution_time
+def slow_function():
+    """時間のかかる処理"""
+    time.sleep(0.5)
+    return "完了"
+
+
+# 例3: エラーハンドリング
+@handle_errors
+def divide(a, b):
+    """割り算"""
+    return a / b
+
+
+# 例4: 複数のデコレーターを組み合わせ
+@handle_errors
+@measure_execution_time
+@log_function_call
+def fetch_data(user_id):
+    """データ取得（複数デコレーター）"""
+    print(f"ユーザー{user_id}のデータを取得中...")
+    time.sleep(0.2)
+    return {"id": user_id, "name": "田中太郎"}
+
+
+# 例5: リトライ機能
+attempt_count = 0
+
+@retry(max_attempts=3, delay_seconds=0.5)
+def unstable_api():
+    """不安定なAPI（リトライ付き）"""
+    global attempt_count
+    attempt_count += 1
+    
+    # 2回目で成功するようにする
+    if attempt_count < 2:
+        raise ConnectionError("接続失敗")
+    
+    return {"status": "success"}
+
+
+# 例6: 全部盛り
+@apply_all_logging
+def process_payment(amount):
+    """支払い処理（全デコレーター適用）"""
+    print(f"{amount}円の支払いを処理中...")
+    time.sleep(0.1)
+    
+    if amount < 0:
+        raise ValueError("金額は正の数である必要があります")
+    
+    return {"status": "completed", "amount": amount}
+
+
+# メイン処理
+def main():
+    """メイン関数"""
+    print("=" * 70)
+    print("デコレーター デモプログラム")
+    print("=" * 70)
+    
+    # テスト1
+    print("\n【テスト1: 足し算】")
+    result = add_numbers(3, 5)
+    print(f"結果: {result}\n")
+    
+    # テスト2
+    print("\n【テスト2: 時間計測】")
+    slow_function()
+    print()
+    
+    # テスト3
+    print("\n【テスト3: エラーハンドリング】")
+    try:
+        divide(10, 2)  # 正常
+        print()
+        divide(10, 0)  # エラー
+    except ZeroDivisionError:
+        print("→ エラーを補足しました\n")
+    
+    # テスト4
+    print("\n【テスト4: 複数のデコレーター】")
+    data = fetch_data(123)
+    print(f"取得データ: {data}\n")
+    
+    # テスト5
+    print("\n【テスト5: リトライ機能】")
+    global attempt_count
+    attempt_count = 0
+    api_result = unstable_api()
+    print(f"API結果: {api_result}\n")
+    
+    # テスト6
+    print("\n【テスト6: 全部盛り】")
+    payment = process_payment(1000)
+    print(f"支払い結果: {payment}\n")
+    
+    print("=" * 70)
+    print("デモ完了！")
+    print("=" * 70)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+---
+
+## 🚀 ステップ4: 実行
+
+### PowerShellで実行
+
+```powershell
+# フォルダに移動
+cd C:\Users\yukik\Desktop\excel
+
+# ファイルがあるか確認
+ls
+
+# 実行
+py main.py
+```
+
+### VSCodeで実行
+
+1. `main.py` を開く
+2. **F5** キーを押す
+3. または、右クリック → "Run Python File in Terminal"
+
+---
+
+## ✅ 期待される出力
+
+```
+======================================================================
+デコレーター デモプログラム
+======================================================================
+
+【テスト1: 足し算】
+[10:30:15] INFO     → 呼び出し: add_numbers(3, 5)
+[10:30:15] INFO     ← 完了: add_numbers() → 8
+結果: 8
+
+【テスト2: 時間計測】
+[10:30:15] INFO     ⏱ slow_function() の実行時間: 500.15ms
+
+【テスト3: エラーハンドリング】
+[10:30:16] ERROR    ❌ divide() でエラー発生: ZeroDivisionError: division by zero
+→ エラーを補足しました
+
+【テスト4: 複数のデコレーター】
+[10:30:16] INFO     → 呼び出し: fetch_data(123)
+ユーザー123のデータを取得中...
+[10:30:16] INFO     ⏱ fetch_data() の実行時間: 200.32ms
+[10:30:16] INFO     ← 完了: fetch_data() → {'id': 123, 'name': '田中太郎'}
+取得データ: {'id': 123, 'name': '田中太郎'}
+
+【テスト5: リトライ機能】
+[10:30:17] INFO     🔄 unstable_api() 試行 1/3
+[10:30:17] WARNING  ⚠️ unstable_api() 失敗（1/3）: 接続失敗
+[10:30:17] INFO     ⏳ 0.5秒待機後に再試行...
+[10:30:18] INFO     🔄 unstable_api() 試行 2/3
+[10:30:18] INFO     ✅ unstable_api() 成功（2回目）
+API結果: {'status': 'success'}
+
+【テスト6: 全部盛り】
+[10:30:18] INFO     → 呼び出し: process_payment(1000)
+1000円の支払いを処理中...
+[10:30:18] INFO     ⏱ process_payment() の実行時間: 100.25ms
+[10:30:18] INFO     ← 完了: process_payment() → {'status': 'completed', 'amount': 1000}
+支払い結果: {'status': 'completed', 'amount': 1000}
+
+======================================================================
+デモ完了！
+======================================================================
+```
+
+---
+
+## 🛠️ トラブルシューティング
+
+### エラー1: ModuleNotFoundError
+
+```
+ModuleNotFoundError: No module named 'decorators'
+```
+
+**原因**: `decorators.py` が同じフォルダにない
+
+**解決策**:
+```powershell
+# 現在のフォルダを確認
+pwd
+
+# ファイル一覧を確認
+ls
+
+# decorators.py と main.py が両方あることを確認
+```
+
+---
+
+### エラー2: NameError
+
+```
+NameError: name 'log_function_call' is not defined
+```
+
+**原因**: インポート文が書かれていない
+
+**解決策**: `main.py` の先頭に追加
+```python
+from decorators import log_function_call
+```
+
+---
+
+### エラー3: SyntaxError
+
+```
+SyntaxError: invalid syntax
+```
+
+**原因**: コピペ時にインデントが崩れた
+
+**解決策**: コードを再度コピーして、全て置き換える
+
+---
+
+## 📚 自分のプロジェクトで使う方法
+
+### パターン1: 関数に適用
+
+```python
+from decorators import log_function_call, handle_errors
+
+@handle_errors
+@log_function_call
+def your_function(x, y):
+    # あなたのコード
+    return x + y
+```
+
+### パターン2: クラスメソッドに適用
+
+```python
+from decorators import measure_execution_time
+
+class MyService:
+    @measure_execution_time
+    def process(self, data):
+        # 処理
+        return data
+```
+
+### パターン3: API呼び出しに適用
+
+```python
+from decorators import retry, handle_errors
+
+@retry(max_attempts=3, delay_seconds=2.0)
+@handle_errors
+def api_call(url):
+    import requests
+    response = requests.get(url)
+    return response.json()
+```
+
+---
+
+## 🎓 よく使う組み合わせ
+
+### Web API用
+
+```python
+@retry(max_attempts=3)
+@handle_errors
+@measure_execution_time
+@log_function_call
+def call_external_api(endpoint):
+    # API呼び出し
+    pass
+```
+
+### データ処理用
+
+```python
+@handle_errors
+@measure_execution_time
+@log_function_call
+def process_large_data(data):
+    # 重い処理
+    pass
+```
+
+### 重要な業務ロジック用
+
+```python
+@apply_all_logging
+def important_business_logic(params):
+    # 重要な処理
+    pass
+```
+
+---
+
+## 📋 チェックリスト
+
+実行前に確認:
+
+- [ ] `decorators.py` を作成した
+- [ ] `main.py` を作成した
+- [ ] 両方のファイルが同じフォルダにある
+- [ ] `main.py` でインポート文を書いた
+- [ ] ファイル名に特殊文字がない
+
+---
+
+## 🎯 まとめ
+
+### デコレーターの作り方
+
+```python
+import functools
+
+def my_decorator(func):
+    @functools.wraps(func)  # 必須！
+    def wrapper(*args, **kwargs):
+        # 前処理
+        result = func(*args, **kwargs)
+        # 後処理
+        return result
+    return wrapper
+```
+
+### デコレーターの使い方
+
+```python
+# インポート
+from decorators import my_decorator
+
+# 適用
+@my_decorator
+def my_function():
+    pass
+```
+
+### 重要ポイント
+
+1. **functools.wraps(func) は必須**
+2. **decorators.py と main.py は同じフォルダ**
+3. **必ずインポートする**
+4. **下から上に適用される**
+
+---
+
+"""
+============================================================
+ステップ1: デコレーターとは何か？
+============================================================
+
+デコレーターは「関数を装飾（デコレート）する関数」です。
+@マークを使って、既存の関数に新しい機能を追加できます。
+"""
+
+# ===================================================================
+# 1-1. デコレーターなしのコード（Before）
+# ===================================================================
+
+def greet(name):
+    """挨拶する関数"""
+    print(f"こんにちは、{name}さん！")
+
+# 関数を呼ぶ
+greet("田中")
+# 出力: こんにちは、田中さん！
+
+
+# ===================================================================
+# 1-2. ログを追加したい場合（デコレーターなし）
+# ===================================================================
+
+def greet_with_log(name):
+    """挨拶する関数（ログ付き）"""
+    print("[LOG] greet関数が呼ばれました")  # ← この行を毎回書く必要がある
+    print(f"こんにちは、{name}さん！")
+    print("[LOG] greet関数が終了しました")  # ← この行も毎回書く必要がある
+
+greet_with_log("佐藤")
+# 出力:
+# [LOG] greet関数が呼ばれました
+# こんにちは、佐藤さん！
+# [LOG] greet関数が終了しました
+
+
+# ===================================================================
+# 1-3. デコレーターを使う場合（After）
+# ===================================================================
+
+# まず、デコレーターを定義
+def add_log(func):
+    """ログを追加するデコレーター"""
+    def wrapper(*args, **kwargs):
+        print(f"[LOG] {func.__name__}関数が呼ばれました")
+        result = func(*args, **kwargs)  # 元の関数を実行
+        print(f"[LOG] {func.__name__}関数が終了しました")
+        return result
+    return wrapper
+
+
+# デコレーターを使って関数を装飾
+@add_log
+def greet_decorated(name):
+    """挨拶する関数（デコレーター使用）"""
+    print(f"こんにちは、{name}さん！")
+
+
+# 普通に関数を呼ぶだけ！
+greet_decorated("鈴木")
+# 出力:
+# [LOG] greet_decorated関数が呼ばれました
+# こんにちは、鈴木さん！
+# [LOG] greet_decorated関数が終了しました
+
+
+"""
+============================================================
+ポイント1: デコレーターの仕組み
+============================================================
+
+@add_log
+def greet_decorated(name):
+    print(f"こんにちは、{name}さん！")
+
+↓ これは以下と同じ意味
+
+def greet_decorated(name):
+    print(f"こんにちは、{name}さん！")
+
+greet_decorated = add_log(greet_decorated)
+
+つまり、デコレーターは「関数を受け取って、新しい関数を返す」関数です。
+"""
+
+
+# ===================================================================
+# 1-4. デコレーターの構造を理解する
+# ===================================================================
+
+def my_decorator(func):
+    """
+    デコレーターのテンプレート
+    
+    Args:
+        func: デコレートする関数
+    
+    Returns:
+        wrapper: ラップされた新しい関数
+    """
+    # ステップ1: wrapper関数を定義
+    def wrapper(*args, **kwargs):
+        # ステップ2: 元の関数の前に実行する処理
+        print("--- 関数実行前 ---")
+        
+        # ステップ3: 元の関数を実行
+        result = func(*args, **kwargs)
+        
+        # ステップ4: 元の関数の後に実行する処理
+        print("--- 関数実行後 ---")
+        
+        # ステップ5: 結果を返す
+        return result
+    
+    # ステップ6: wrapper関数を返す
+    return wrapper
+
+
+# 使用例
+@my_decorator
+def say_hello():
+    print("Hello!")
+
+say_hello()
+# 出力:
+# --- 関数実行前 ---
+# Hello!
+# --- 関数実行後 ---
+
+
+"""
+============================================================
+ポイント2: *args と **kwargs
+============================================================
+
+*args:  位置引数を全て受け取る
+**kwargs: キーワード引数を全て受け取る
+
+これにより、どんな引数の関数にも対応できます。
+
+例:
+    def wrapper(*args, **kwargs):
+        func(*args, **kwargs)
+    
+    # 以下の全てに対応可能
+    func()              # 引数なし
+    func(1, 2, 3)       # 位置引数
+    func(a=1, b=2)      # キーワード引数
+    func(1, 2, c=3)     # 混在
+"""
+
+
+# ===================================================================
+# 1-5. 実践例：時間計測デコレーター
+# ===================================================================
+
+import time
+
+def measure_time(func):
+    """実行時間を計測するデコレーター"""
+    def wrapper(*args, **kwargs):
+        # 開始時刻を記録
+        start_time = time.time()
+        
+        # 元の関数を実行
+        result = func(*args, **kwargs)
+        
+        # 終了時刻を記録
+        end_time = time.time()
+        
+        # 実行時間を計算
+        elapsed_time = end_time - start_time
+        print(f"[TIME] {func.__name__}の実行時間: {elapsed_time:.4f}秒")
+        
+        return result
+    
+    return wrapper
+
+
+@measure_time
+def slow_function():
+    """時間のかかる処理"""
+    time.sleep(1)
+    print("処理完了")
+
+slow_function()
+# 出力:
+# 処理完了
+# [TIME] slow_functionの実行時間: 1.0012秒
+
+
+"""
+============================================================
+ステップ1のまとめ
+============================================================
+
+✅ デコレーターは「関数を受け取って、新しい関数を返す」関数
+✅ @マークで簡潔に書ける
+✅ *args, **kwargs でどんな関数にも対応
+✅ 元の関数の前後に処理を追加できる
+
+次のステップ: functools.wraps を使って完璧なデコレーターを作る
+"""
+
+これで実務レベルのデコレーターが使えるようになりました！🎉✨
